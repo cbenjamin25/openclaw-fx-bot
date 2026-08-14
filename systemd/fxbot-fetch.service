@@ -1,0 +1,10 @@
+[Unit]
+Description=fxbot incremental candle fetch
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=fxbot
+WorkingDirectory=/home/fxbot/openclaw-fx-bot
+Environment=FXBOT_ENV=practice
+ExecStart=/home/fxbot/openclaw-fx-bot/.venv/bin/python -m src.data.fetch EUR_USD H1 5000

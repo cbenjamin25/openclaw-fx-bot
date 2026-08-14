@@ -1,0 +1,11 @@
+# Phase 1 helper: hourly incremental candle top-up on the EC2 box.
+# (The live streaming service arrives in Phase 4.)
+[Unit]
+Description=fxbot hourly candle fetch
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
