@@ -156,8 +156,20 @@ resource "aws_instance" "fxbot" {
   user_data = <<-EOF
     #!/bin/bash
     set -euo pipefail
+    # Lesson 2026-08-14: egress is 443-only, but Ubuntu's default apt
+    # mirrors use plain HTTP (port 80). Switch to HTTPS mirrors first
+    # or every install below fails with "Network is unreachable".
+    sed -i 's|http://us-east-1.ec2.archive.ubuntu.com|https://archive.ubuntu.com|g; s|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources
     apt-get update
-    apt-get install -y python3.12-venv git amazon-cloudwatch-agent
+    apt-get install -y python3.12-venv git unzip
+    # Lesson 2026-08-14: amazon-cloudwatch-agent is NOT in Ubuntu's apt
+    # repos; install Amazon's official .deb over HTTPS instead.
+    curl -sLo /tmp/cwagent.deb "https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb"
+    dpkg -i /tmp/cwagent.deb
+    # AWS CLI v2 (not preinstalled on Ubuntu AMIs; needed for SSM reads)
+    curl -sLo /tmp/awscliv2.zip "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+    unzip -q /tmp/awscliv2.zip -d /tmp
+    /tmp/aws/install
     useradd -m -s /bin/bash fxbot || true
   EOF
 
