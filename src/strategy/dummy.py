@@ -30,6 +30,10 @@ class SmaCross:
     def on_bar(self, history: pd.DataFrame) -> Optional[Signal]:
         if len(history) < self.slow + 2:
             return None
+        # Bounded lookback: only the tail is ever needed. Without this,
+        # every bar recomputes over ALL history — O(n²) across a long
+        # backtest (the 2026-08-14 "why is it still running" lesson).
+        history = history.iloc[-max(self.slow + 2, self.atr_period + 2, 200):]
 
         close = history["close"]
         fast_now = close.iloc[-self.fast :].mean()
