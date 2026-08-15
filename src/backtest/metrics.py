@@ -68,7 +68,7 @@ def compute_metrics(result: BacktestResult) -> dict:
     }
 
 
-def format_report(result: BacktestResult, metrics: dict) -> str:
+def format_report(result: BacktestResult, metrics: dict, mode: str = "IN-SAMPLE") -> str:
     lines = [
         "=" * 62,
         f"BACKTEST  {result.instrument} {result.granularity}  "
@@ -99,6 +99,23 @@ def format_report(result: BacktestResult, metrics: dict) -> str:
         f"best {metrics['best_month_r']:+.2f} R / "
         f"worst {metrics['worst_month_r']:+.2f} R",
         f"Exits: {metrics['exit_reasons']}",
-        "=" * 62,
+        "-" * 62,
+        f"GATES ({mode}) — plan targets vs this run:",
     ]
+    from src.backtest.gates import evaluate_gates, gates_summary
+
+    for name, ok, detail in evaluate_gates(metrics):
+        mark = "PASS" if ok else "FAIL"
+        lines.append(f"  [{mark}] {name:<28} {detail}")
+    passed, total = gates_summary(metrics)
+    overall = "ALL GATES PASSED" if passed == total else f"{passed}/{total} gates passed — NOT ACCEPTED"
+    lines += [
+        f"VERDICT: {overall}",
+    ]
+    if mode == "IN-SAMPLE":
+        lines.append(
+            "NOTE: in-sample run. Gates formally require WALK-FORWARD "
+            "out-of-sample results; passing here is necessary, never sufficient."
+        )
+    lines.append("=" * 62)
     return "\n".join(lines)
