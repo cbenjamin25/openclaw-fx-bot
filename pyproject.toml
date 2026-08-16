@@ -1,0 +1,11 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Correctness-focused rules only (syntax errors, undefined names, unused
+# imports). Style-preference rules (import aliases, Optional vs |None,
+# etc.) are deliberately excluded so CI verdicts don't drift with ruff
+# version fashion. Adopt stricter style rules later as a deliberate
+# choice, not a surprise. (Lesson: CI run #6, 2026-08-16.)
+select = ["E4", "E7", "E9", "F"]
