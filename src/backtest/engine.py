@@ -41,8 +41,10 @@ class Trade:
     direction: int
     entry_price: float          # actual fill (cost-adjusted)
     stop_price: float
-    target_price: float
+    target_price: Optional[float]   # None = no fixed target (trend exits)
     r_distance: float           # 1R in price units
+    trail_distance: Optional[float] = None
+    best_price: float = 0.0     # best favorable extreme since entry
     exit_price: Optional[float] = None
     exit_reason: str = ""       # "stop" | "target" | "eod"
     r_multiple: Optional[float] = None
@@ -119,7 +121,7 @@ def run_backtest(
                 if open_trade.direction == LONG
                 else bar["high"] >= open_trade.stop_price
             )
-            hit_target = (
+            hit_target = open_trade.target_price is not None and (
                 bar["high"] >= open_trade.target_price
                 if open_trade.direction == LONG
                 else bar["low"] <= open_trade.target_price
@@ -146,6 +148,23 @@ def run_backtest(
                 result.trades.append(open_trade)
                 open_trade = None
 
+            # Trailing ratchet — AFTER exit checks, using this bar's
+            # extreme, so the tightened stop can only act on the NEXT
+            # bar (no intra-bar lookahead). Never loosens.
+            if open_trade is not None and open_trade.trail_distance:
+                if open_trade.direction == LONG:
+                    open_trade.best_price = max(open_trade.best_price, bar["high"])
+                    open_trade.stop_price = max(
+                        open_trade.stop_price,
+                        open_trade.best_price - open_trade.trail_distance,
+                    )
+                else:
+                    open_trade.best_price = min(open_trade.best_price, bar["low"])
+                    open_trade.stop_price = min(
+                        open_trade.stop_price,
+                        open_trade.best_price + open_trade.trail_distance,
+                    )
+
         # ── 2. Execute a signal pended from the PREVIOUS bar at this open ──
         if pending is not None and open_trade is None:
             sig = pending
@@ -153,11 +172,17 @@ def run_backtest(
             if sig.direction == LONG:
                 entry = costs.buy_fill(mid_open)
                 stop = entry - sig.stop_distance
-                target = entry + sig.stop_distance * sig.target_r
+                target = (
+                    entry + sig.stop_distance * sig.target_r
+                    if sig.target_r is not None else None
+                )
             else:
                 entry = costs.sell_fill(mid_open)
                 stop = entry + sig.stop_distance
-                target = entry - sig.stop_distance * sig.target_r
+                target = (
+                    entry - sig.stop_distance * sig.target_r
+                    if sig.target_r is not None else None
+                )
             open_trade = Trade(
                 entry_ts=ts,
                 exit_ts=None,
@@ -166,6 +191,8 @@ def run_backtest(
                 stop_price=stop,
                 target_price=target,
                 r_distance=sig.stop_distance,
+                trail_distance=sig.trail_distance,
+                best_price=entry,
             )
         pending = None
 

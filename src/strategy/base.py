@@ -21,14 +21,19 @@ class Signal:
     """A trade intent at a specific bar.
 
     direction: LONG (+1) or SHORT (-1)
-    stop_distance: distance from entry to stop, in PRICE units (not pips).
+    stop_distance: distance from entry to initial stop, in PRICE units.
                    Defines 1R for this trade.
-    target_r: take-profit distance as a multiple of R (e.g. 1.5).
+    target_r: take-profit distance as a multiple of R (e.g. 1.5), or
+              None for no fixed target (trend-following exits).
+    trail_distance: if set, a trailing stop in PRICE units — the stop
+              ratchets to (best price since entry − trail_distance) for
+              longs (mirrored for shorts), never loosening.
     """
 
     direction: int
     stop_distance: float
-    target_r: float = 1.5
+    target_r: Optional[float] = 1.5
+    trail_distance: Optional[float] = None
 
 
 class Strategy(Protocol):

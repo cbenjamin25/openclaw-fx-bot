@@ -56,22 +56,43 @@ GRID_QUICK = {
     "atr_stop_mult": [1.5],
 }
 
-H1_BARS_PER_MONTH = 520  # ~24h * 5d * 4.33wk
+TREND_GRID_FULL = {
+    "ema_fast": [40, 50],
+    "trail_atr_mult": [2.5, 3.0, 4.0],
+    "pullback_lookback": [4, 6],
+    "vol_floor_pct": [0.0, 20.0],
+}
+TREND_GRID_QUICK = {
+    "ema_fast": [50],
+    "trail_atr_mult": [2.5, 3.0, 4.0],
+    "pullback_lookback": [4, 6],
+    "vol_floor_pct": [20.0],
+}
 
-MIN_TRAIN_TRADES = 30  # a combo must trade this much on train to qualify
+STRATEGY_FAMILIES = {
+    "mr": {"quick": GRID_QUICK, "full": GRID_FULL},
+    "trend": {"quick": TREND_GRID_QUICK, "full": TREND_GRID_FULL},
+}
 
+BARS_PER_MONTH = {"H1": 520, "H4": 130, "D": 22}
 
-def make_strategy(params: dict):
-    from src.strategy.mean_reversion import MeanReversion
+def make_strategy(family: str, params: dict):
+    if family == "mr":
+        from src.strategy.mean_reversion import MeanReversion
 
-    lo, hi = params["rsi_band"]
-    return MeanReversion(
-        rsi_low=lo,
-        rsi_high=hi,
-        confirm_bars=params["confirm_bars"],
-        target_r=params["target_r"],
-        atr_stop_mult=params["atr_stop_mult"],
-    )
+        lo, hi = params["rsi_band"]
+        return MeanReversion(
+            rsi_low=lo,
+            rsi_high=hi,
+            confirm_bars=params["confirm_bars"],
+            target_r=params["target_r"],
+            atr_stop_mult=params["atr_stop_mult"],
+        )
+    if family == "trend":
+        from src.strategy.trend import TrendPullback
+
+        return TrendPullback(**params)
+    raise SystemExit(f"unknown strategy family {family!r}")
 
 
 def grid_combos(grid: dict) -> list[dict]:
@@ -91,16 +112,19 @@ def walk_forward(
     grid: dict,
     train_months: int = 12,
     test_months: int = 3,
+    family: str = "mr",
+    min_train_trades: int = 30,
 ) -> tuple[BacktestResult, list[dict]]:
     costs = CostModel.for_instrument(instrument)
-    train_bars = train_months * H1_BARS_PER_MONTH
-    test_bars = test_months * H1_BARS_PER_MONTH
+    bpm = BARS_PER_MONTH.get(granularity, 520)
+    train_bars = train_months * bpm
+    test_bars = test_months * bpm
     combos = grid_combos(grid)
 
     oos = BacktestResult(
         instrument=instrument,
         granularity=granularity,
-        strategy_name="mr_consecutive_wf",
+        strategy_name=f"{family}_wf",
         config_hash="",
     )
     audit: list[dict] = []
@@ -122,10 +146,10 @@ def walk_forward(
         best_params, best_metrics = None, None
         for params in combos:
             res = run_backtest(
-                train, make_strategy(params), costs, instrument, granularity
+                train, make_strategy(family, params), costs, instrument, granularity
             )
             m = compute_metrics(res)
-            if m.get("trade_count", 0) < MIN_TRAIN_TRADES:
+            if m.get("trade_count", 0) < min_train_trades:
                 continue
             if best_metrics is None or score(m) > score(best_metrics):
                 best_params, best_metrics = params, m
@@ -140,7 +164,7 @@ def walk_forward(
         # ── frozen params on unseen TEST ──
         res_test = run_backtest(
             test_with_warmup,
-            make_strategy(best_params),
+            make_strategy(family, best_params),
             costs,
             instrument,
             granularity,
@@ -152,7 +176,7 @@ def walk_forward(
             {
                 "window": window_n,
                 "train_expectancy": best_metrics["expectancy_r"],
-                "params": {**best_params, "rsi_band": list(best_params["rsi_band"])},
+                "params": {k: (list(v) if isinstance(v, tuple) else v) for k, v in best_params.items()},
                 "oos_trades": len(kept),
                 "oos_r": round(sum(t.r_multiple or 0 for t in kept), 2),
             }
@@ -171,6 +195,7 @@ def walk_forward(
     oos.config_hash = config_hash(
         {
             "mode": "walk_forward",
+            "family": family,
             "instrument": instrument,
             "granularity": granularity,
             "grid": {k: [list(v) if isinstance(v, tuple) else v for v in vs] for k, vs in grid.items()},
@@ -187,14 +212,19 @@ def main() -> None:
     p.add_argument("instrument")
     p.add_argument("granularity")
     p.add_argument("--grid", choices=["quick", "full"], default="quick")
+    p.add_argument("--strategy", choices=list(STRATEGY_FAMILIES), default="mr")
     p.add_argument("--train-months", type=int, default=12)
     p.add_argument("--test-months", type=int, default=3)
+    p.add_argument("--min-train-trades", type=int, default=None,
+                   help="combo qualification floor on train (default: 30 for mr, 12 for trend)")
     args = p.parse_args()
 
     df = load_df(args.instrument, args.granularity)
     if df.empty:
         raise SystemExit("no candles; run src.data.fetch first")
-    grid = GRID_QUICK if args.grid == "quick" else GRID_FULL
+    grid = STRATEGY_FAMILIES[args.strategy][args.grid]
+    if args.min_train_trades is None:
+        args.min_train_trades = 30 if args.strategy == "mr" else 12
     n_combos = len(grid_combos(grid))
     print(
         f"walk-forward: {args.instrument} {args.granularity}, "
@@ -206,6 +236,7 @@ def main() -> None:
     oos, audit = walk_forward(
         df, args.instrument, args.granularity, grid,
         args.train_months, args.test_months,
+        family=args.strategy, min_train_trades=args.min_train_trades,
     )
     metrics = compute_metrics(oos)
     print()

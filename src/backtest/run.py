@@ -21,6 +21,7 @@ from src.data.store import conn, load_df
 STRATEGIES = {
     "dummy": "src.strategy.dummy",
     "mr": "src.strategy.mean_reversion",
+    "trend": "src.strategy.trend",
 }
 
 RUNS_SCHEMA = """
