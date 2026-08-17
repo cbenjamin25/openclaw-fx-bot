@@ -155,7 +155,7 @@ def main() -> None:
 
     # Monthly-ish concentration view: window R distribution
     top = df.nlargest(3, "r")[["instrument", "window", "r"]]
-    print(f"       top-3 windows: "
+    print("       top-3 windows: "
           + ", ".join(f"{r.instrument} w{r.window} {r.r:+.1f}R" for r in top.itertuples()))
     share = top["r"].sum() / total_r if total_r > 0 else math.nan
     print(f"       top-3 window share of total R: {share:.0%}")
