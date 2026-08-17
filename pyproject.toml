@@ -9,3 +9,9 @@ target-version = "py312"
 # version fashion. Adopt stricter style rules later as a deliberate
 # choice, not a surprise. (Lesson: CI run #6, 2026-08-16.)
 select = ["E4", "E7", "E9", "F"]
+
+[tool.pytest.ini_options]
+# pyproject.toml's presence changes pytest's rootdir/import resolution
+# (CI run #7: ModuleNotFoundError 'src'). Pin the import path explicitly.
+pythonpath = ["."]
+testpaths = ["tests"]
