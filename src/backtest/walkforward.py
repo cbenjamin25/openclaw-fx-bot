@@ -179,6 +179,15 @@ def walk_forward(
                 "params": {k: (list(v) if isinstance(v, tuple) else v) for k, v in best_params.items()},
                 "oos_trades": len(kept),
                 "oos_r": round(sum(t.r_multiple or 0 for t in kept), 2),
+                "trades": [
+                    {
+                        "entry_ts": t.entry_ts.isoformat(),
+                        "exit_ts": t.exit_ts.isoformat() if t.exit_ts is not None else None,
+                        "r": round(t.r_multiple or 0.0, 4),
+                        "reason": t.exit_reason,
+                    }
+                    for t in kept
+                ],
             }
         )
         elapsed = time.time() - t0

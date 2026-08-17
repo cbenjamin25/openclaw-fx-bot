@@ -80,29 +80,57 @@ def main() -> None:
                 )
 
     df = pd.DataFrame(rows)
-    total_trades = int(df["trades"].sum())
-    total_r = float(df["r"].sum())
-    expectancy = total_r / total_trades if total_trades else 0.0
 
-    # Blend trade-level stats from per-pair exact metrics (weighted).
-    wsum = sum(m["trade_count"] for _, m in per_pair)
-    blend = {
-        "trade_count": total_trades,
-        "expectancy_r": round(expectancy, 4),
-        "profit_factor": round(
-            sum(m["profit_factor"] * m["trade_count"] for _, m in per_pair) / wsum, 3
-        ),
-        "win_rate": round(
-            sum(m["win_rate"] * m["trade_count"] for _, m in per_pair) / wsum, 4
-        ),
-    }
+    # ── EXACT MODE: if per-trade records exist, merge all trades on the
+    # calendar and compute every metric from the real trade stream. ──
+    trade_rows = []
+    for inst in args.instruments:
+        payload = load_latest_audit(inst, args.strategy)
+        for w in payload["audit"]:
+            for t in w.get("trades", []):
+                trade_rows.append(
+                    {"instrument": inst, "entry_ts": t["entry_ts"], "r": t["r"]}
+                )
 
-    # Portfolio drawdown proxy: cumulative R curve of the window stream
-    # (time-ordered blend), drawdown in R units at 1R ≈ 1% of equity.
-    cum_r = df.sort_values(["window", "instrument"])["r"].cumsum()
-    peak = cum_r.cummax()
-    max_dd_r = float((cum_r - peak).min())
-    blend["max_drawdown_pct_at_1pct_risk"] = round(max_dd_r * 1.0, 2)  # 1R ≈ 1%
+    exact = len(trade_rows) > 0
+    if exact:
+        tdf = pd.DataFrame(trade_rows)
+        tdf["entry_ts"] = pd.to_datetime(tdf["entry_ts"])
+        tdf = tdf.sort_values("entry_ts").reset_index(drop=True)
+        r = tdf["r"].astype(float)
+        wins, losses = r[r > 0], r[r <= 0]
+        gross_w, gross_l = float(wins.sum()), float(-losses.sum())
+        equity = (1 + r * 0.01).cumprod()
+        dd = float((equity / equity.cummax() - 1).min()) * 100
+        blend = {
+            "trade_count": int(len(r)),
+            "expectancy_r": round(float(r.mean()), 4),
+            "profit_factor": round(gross_w / gross_l, 3) if gross_l > 0 else float("inf"),
+            "win_rate": round(len(wins) / len(r), 4),
+            "max_drawdown_pct_at_1pct_risk": round(dd, 2),
+        }
+        total_trades, total_r = blend["trade_count"], round(float(r.sum()), 2)
+        expectancy = blend["expectancy_r"]
+    else:
+        total_trades = int(df["trades"].sum())
+        total_r = float(df["r"].sum())
+        expectancy = total_r / total_trades if total_trades else 0.0
+
+        wsum = sum(m["trade_count"] for _, m in per_pair)
+        blend = {
+            "trade_count": total_trades,
+            "expectancy_r": round(expectancy, 4),
+            "profit_factor": round(
+                sum(m["profit_factor"] * m["trade_count"] for _, m in per_pair) / wsum, 3
+            ),
+            "win_rate": round(
+                sum(m["win_rate"] * m["trade_count"] for _, m in per_pair) / wsum, 4
+            ),
+        }
+        cum_r = df.sort_values(["window", "instrument"])["r"].cumsum()
+        peak = cum_r.cummax()
+        max_dd_r = float((cum_r - peak).min())
+        blend["max_drawdown_pct_at_1pct_risk"] = round(max_dd_r * 1.0, 2)
 
     print("=" * 62)
     print(f"PORTFOLIO  {args.strategy}  [{', '.join(args.instruments)}]")
@@ -118,9 +146,11 @@ def main() -> None:
         f"BLEND: {total_trades} trades  exp {expectancy:+.4f} R  "
         f"total {total_r:+.2f} R"
     )
+    mode_note = "EXACT trade-level replay" if exact else "trade-weighted reconstruction"
     print(
-        f"       PF~{blend['profit_factor']} (trade-weighted)  "
-        f"DD~{blend['max_drawdown_pct_at_1pct_risk']}% (window-stream, 1R=1%)"
+        f"       PF {blend['profit_factor']} ({mode_note})  "
+        f"DD {blend['max_drawdown_pct_at_1pct_risk']}%  "
+        f"win rate {blend['win_rate']:.1%}"
     )
 
     # Monthly-ish concentration view: window R distribution
@@ -137,9 +167,12 @@ def main() -> None:
     print(
         f"VERDICT: {'ALL GATES PASSED' if passed == total_g else f'{passed}/{total_g} gates passed — NOT ACCEPTED'}"
     )
-    print("NOTE: blended PF/win-rate are trade-weighted reconstructions; "
-          "DD is from the window-R stream. Trade-level portfolio replay "
-          "is the Phase 2 upgrade if this blend warrants it.")
+    if exact:
+        print("MODE: exact — all metrics computed from the merged individual "
+              "trade stream in calendar order.")
+    else:
+        print("MODE: reconstruction — rerun walk-forward with trade logging "
+              "for exact metrics.")
     print("=" * 62)
 
 
