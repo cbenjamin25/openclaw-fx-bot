@@ -44,10 +44,18 @@ def fetch_all(symbol: str) -> None:
     total = 0
     gaps = 0
     prev_ms: int | None = None
+    THIRTY_DAYS_MS = 30 * 24 * 3600 * 1000
 
     while True:
         candles = ex.fetch_ohlcv(symbol, TIMEFRAME, since=since, limit=BATCH)
         if not candles:
+            # A 'since' before the exchange's data start returns empty
+            # rather than clamping (learned 2026-08-18). Walk forward
+            # until data begins; stop if we've walked past the present.
+            if total == 0 and since < ex.milliseconds():
+                since += THIRTY_DAYS_MS
+                time.sleep(ex.rateLimit / 1000)
+                continue
             break
         rows = []
         for ms, o, h, l, c, v in candles:
