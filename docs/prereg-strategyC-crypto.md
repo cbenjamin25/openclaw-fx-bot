@@ -46,9 +46,13 @@ Crypto costs differ from FX and must be pessimistic:
 
 ## Data plan
 
-- Source: public exchange OHLCV via ccxt (Coinbase or Kraken spot),
-  H4 candles, full history, stored in the same SQLite vault under
-  instruments BTC_USD / ETH_USD.
+- Source: public exchange OHLCV via ccxt — **Bitstamp** spot, native H4
+  candles, full history (BTC/USD from ~2011, ETH/USD from ~2017),
+  stored in the same SQLite vault under BTC_USD / ETH_USD.
+  - *Amendment 2026-08-18 (before any data contact):* original draft
+    named Coinbase/Kraken; Kraken's public API caps history at 720
+    candles and Coinbase lacks native H4 and pre-2015 data. Bitstamp
+    is the deepest paginable source. Source swapped openly, pre-data.
 - Data-quality rule: gaps > 2 consecutive H4 bars are logged; windows
   containing exchange-outage gaps are flagged in the audit.
 

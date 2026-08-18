@@ -75,6 +75,8 @@ STRATEGY_FAMILIES = {
 }
 
 BARS_PER_MONTH = {"H1": 520, "H4": 130, "D": 22}
+BARS_PER_MONTH_CRYPTO = {"H1": 720, "H4": 180, "D": 30}  # 24/7 markets
+CRYPTO_INSTRUMENTS = {"BTC_USD", "ETH_USD"}
 
 def make_strategy(family: str, params: dict):
     if family == "mr":
@@ -116,7 +118,12 @@ def walk_forward(
     min_train_trades: int = 30,
 ) -> tuple[BacktestResult, list[dict]]:
     costs = CostModel.for_instrument(instrument)
-    bpm = BARS_PER_MONTH.get(granularity, 520)
+    table = (
+        BARS_PER_MONTH_CRYPTO
+        if instrument.upper() in CRYPTO_INSTRUMENTS
+        else BARS_PER_MONTH
+    )
+    bpm = table.get(granularity, 520)
     train_bars = train_months * bpm
     test_bars = test_months * bpm
     combos = grid_combos(grid)
@@ -224,6 +231,8 @@ def main() -> None:
     p.add_argument("--strategy", choices=list(STRATEGY_FAMILIES), default="mr")
     p.add_argument("--train-months", type=int, default=12)
     p.add_argument("--test-months", type=int, default=3)
+    p.add_argument("--start", default=None,
+                   help="only use candles from this date (e.g. 2021-08-01) — the recent-era horizon")
     p.add_argument("--min-train-trades", type=int, default=None,
                    help="combo qualification floor on train (default: 30 for mr, 12 for trend)")
     args = p.parse_args()
@@ -231,6 +240,9 @@ def main() -> None:
     df = load_df(args.instrument, args.granularity)
     if df.empty:
         raise SystemExit("no candles; run src.data.fetch first")
+    if args.start:
+        df = df[df.index >= args.start]
+        print(f"horizon limited: candles from {args.start} → {len(df)} bars")
     grid = STRATEGY_FAMILIES[args.strategy][args.grid]
     if args.min_train_trades is None:
         args.min_train_trades = 30 if args.strategy == "mr" else 12
