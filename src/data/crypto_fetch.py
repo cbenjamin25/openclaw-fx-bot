@@ -46,17 +46,14 @@ def fetch_all(symbol: str) -> None:
     prev_ms: int | None = None
     THIRTY_DAYS_MS = 30 * 24 * 3600 * 1000
 
-    while True:
+    while since < ex.milliseconds() - FOUR_H_MS:
         candles = ex.fetch_ohlcv(symbol, TIMEFRAME, since=since, limit=BATCH)
         if not candles:
-            # A 'since' before the exchange's data start returns empty
-            # rather than clamping (learned 2026-08-18). Walk forward
-            # until data begins; stop if we've walked past the present.
-            if total == 0 and since < ex.milliseconds():
-                since += THIRTY_DAYS_MS
-                time.sleep(ex.rateLimit / 1000)
-                continue
-            break
+            # Pre-data era or a dead stretch: walk forward in time.
+            # (Early-2010s crypto has genuinely empty periods.)
+            since += THIRTY_DAYS_MS
+            time.sleep(ex.rateLimit / 1000)
+            continue
         rows = []
         for ms, o, h, l, c, v in candles:
             if prev_ms is not None and ms - prev_ms > 3 * FOUR_H_MS:
@@ -76,8 +73,8 @@ def fetch_all(symbol: str) -> None:
             f"  batch: {len(rows)} candles (new: {inserted}) "
             f"through {rows[-1][2] if rows else '—'} total={total}"
         )
-        if len(candles) < BATCH:
-            break
+        # Sparse eras return partial batches that are NOT the end of
+        # data — always keep walking from the last received candle.
         since = candles[-1][0] + 1
         time.sleep(ex.rateLimit / 1000)
 
